@@ -1,50 +1,63 @@
-import os
-import sys
 from flask import Flask, request, abort
-
-# 使用最穩定的 LINE SDK v2 語法
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
-
-# 使用最經典、絕對不會錯亂的舊版 Gemini 套件
-import google.generativeai as genai
+import google.genai as genai
+import os
 
 app = Flask(__name__)
 
-# 初始化 LINE
-line_bot_api = LineBotApi(os.environ.get("LINE_TOKEN"))
-handler = WebhookHandler(os.environ.get("LINE_SECRET"))
+# ================= 憑證設定 =================
+LINE_CHANNEL_ACCESS_TOKEN = '你的_LINE_CHANNEL_ACCESS_TOKEN'
+LINE_CHANNEL_SECRET = '你的_LINE_CHANNEL_SECRET'
+GEMINI_API_KEY = '你的_GEMINI_API_KEY'
 
-# 初始化 Gemini (直接定死最安全的傳統寫法)
-genai.configure(api_key=os.environ.get("GEMINI_KEY"))
-model = genai.GenerativeModel('gemini-1.5-flash')
+# 初始化 LINE SDK
+line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-@app.route("/", methods=["POST"])
+# 初始化 Gemini SDK
+client = genai.Client(api_key=GEMINI_API_KEY)
+# ============================================
+
+@app.route("/callback", methods=['POST'])
 def callback():
-    signature = request.headers.get('X-Line-Signature')
+    # 驗證 LINE 的數位簽章，確保請求來自 LINE 官方
+    signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
+    
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
+        
     return 'OK'
 
+# 處理文字訊息的邏輯
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    user_msg = event.message.text
+    user_message = event.message.text
+    
     try:
-        # 最經典的呼叫方式，通吃所有 AQ 開頭的免費與付費金鑰
-        response = model.generate_content(user_msg)
-        reply_text = response.text
+        # 呼叫 Gemini API 生成回應（此處以 gemini-2.5-flash 模型為例）
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=user_message,
+        )
+        ai_reply = response.text
     except Exception as e:
-        print(f"❌ Gemini 錯誤: {e}", file=sys.stderr)
-        reply_text = "機器人目前維護中，請稍後再試。"
+        print(f"Gemini API 發生錯誤: {e}")
+        ai_reply = "對不起，我現在大腦有點混亂，請稍後再試！"
 
+    # 將 Gemini 的回覆透過 LINE 回傳給使用者
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage(text=reply_text)
+        TextSendMessage(text=ai_reply)
     )
 
-# 為了相容 Vercel 的 WSGI 進入點
-import app as application
+# ... 前面的程式碼保持不變 ...
+
+if __name__ == "__main__":
+    # Cloud Run 會指定 PORT 環境變數，若沒有則預設 8080
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
