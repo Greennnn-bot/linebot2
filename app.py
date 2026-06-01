@@ -1,50 +1,53 @@
 import os
-import google.generativeai as genai
+import sys
 from flask import Flask, request, abort
 
-# 這是 Line 官方目前主推的新版 v3 匯入路徑
+# LINE 官方新版 v3 匯入路徑
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
-from linebot.v3.messaging import (
-    Configuration,
-    ApiClient,
-    MessagingApi,
-    ReplyMessageRequest,
-    TextMessage
-)
+from linebot.v3.messaging import (Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage)
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
+
+# 改用 Google 官方最新版 SDK 套件
+from google import genai
 
 app = Flask(__name__)
 
-# 新版初始化設定
+# 初始化 LINE 設定 (對應你目前的環境變數)
 configuration = Configuration(access_token=os.environ["LINE_TOKEN"])
 handler = WebhookHandler(os.environ["LINE_SECRET"])
 
-genai.configure(api_key=os.environ["GEMINI_KEY"])
-model = genai.GenerativeModel("gemini-1.5-flash")
+# 初始化 Gemini 新版 Client 
+# 它會自動去讀取環境變數中的 GEMINI_KEY (新版 SDK 自動對應)
+os.environ["GEMINI_API_KEY"] = os.environ["GEMINI_KEY"]
+client = genai.Client()
 
 @app.route("/webhook", methods=["POST"])
 def callback():
     signature = request.headers.get('X-Line-Signature')
     body = request.get_data(as_text=True)
-
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
-
     return 'OK'
 
-# 新版的訊息事件監聽
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
     user_msg = event.message.text
     
-    # 串接 Gemini
-    response = model.generate_content(user_msg)
-    reply_text = response.text
-    
-    # 新版的回覆訊息發送方式
+    try:
+        # 新版 SDK 呼叫 Gemini 產生內容的標準寫法 (絕對不會有 models/ 的 404 錯誤)
+        response = client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=user_msg,
+        )
+        reply_text = response.text
+    except Exception as e:
+        print(f"❌ Gemini 呼叫出錯: {e}", file=sys.stderr)
+        reply_text = "機器人小幫手目前忙碌中，請稍後再試。"
+
+    # 回覆訊息給使用者
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
         line_bot_api.reply_message_with_http_info(
@@ -55,6 +58,6 @@ def handle_message(event):
         )
 
 if __name__ == "__main__":
-    # 讓 Render 自動分配 Port
+    # 讓 Render 自動分配 Port 啟動
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
