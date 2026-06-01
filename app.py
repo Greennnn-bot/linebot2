@@ -17,10 +17,10 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent
 app = Flask(__name__)
 
 # 新版初始化設定
-configuration = Configuration(access_token=os.environ["zYJNeshFqkw+HJd6KLAY8mIvhqDfrHfkT6Ebngaz4nrGXEgXb43h0aFZd0MsBkcXtuLd4xgUaePbGmDCBBNU1YZ7kDAJIXtiwEX/AmIQ8dA/aNSZl7v6pquftjKOA+m9e4ke34G031b80rtSOUHvHwdB04t89/1O/w1cDnyilFU="])
-handler = WebhookHandler(os.environ["ed59110c3acd37f486606ffd1b930419"])
+configuration = Configuration(access_token=os.environ["LINE_TOKEN"])
+handler = WebhookHandler(os.environ["LINE_SECRET"])
 
-genai.configure(api_key=os.environ["AQ.Ab8RN6JxTcZBZC-HB_9vwVnxU8cIZjhbNqkMw3xtYbs_3_XfnA"])
+genai.configure(api_key=os.environ["GEMINI_KEY"])
 model = genai.GenerativeModel("gemini-1.5-flash")
 
 @app.route("/webhook", methods=["POST"])
