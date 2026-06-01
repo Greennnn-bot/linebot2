@@ -7,7 +7,7 @@ app = Flask(__name__)
 
 line_bot_api = LineBotApi("j/NbrdJWfa01UVa8wbYgP5hnPfJoopEN/f8c8yhsZrF5muuoNapiMSLca+N/lfGotuLd4xgUaePbGmDCBBNU1YZ7kDAJIXtiwEX/AmIQ8dC3XkDkL8JRDp7QKB1ImiR1nW27ifU/+CGaMFyb8shzOwdB04t89/1O/w1cDnyilFU=")
 handler = WebhookHandler("ed59110c3acd37f486606ffd1b930419")
-claude = anthropic.Anthropic(api_key="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")
+claude = anthropic.Anthropic(api_key="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")
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
