@@ -37,7 +37,7 @@ def handle_message(event):
     try:
         # 新版 SDK 呼叫 Gemini 產生內容的標準寫法
         response = client.models.generate_content(
-            model='gemini-1.5-flash',
+            model='publishers/google/models/gemini-1.5-flash',
             contents=user_msg,
         )
         reply_text = response.text
