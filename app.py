@@ -14,11 +14,8 @@ from google import genai
 app = Flask(__name__)
 
 # 初始化 LINE 設定 (對應你目前的環境變數)
-configuration = Configuration(access_token=os.environ["LINE_TOKEN"])
-handler = WebhookHandler(os.environ["LINE_SECRET"])
-
-# 初始化 Gemini 新版 Client 
-# 它會自動去讀取環境變數中的 GEMINI_KEY (新版 SDK 自動對應)
+# 強制使用新版標準初始化，直接傳入金鑰
+client = genai.Client(api_key=os.environ.get("GEMINI_KEY"))
 os.environ["GEMINI_API_KEY"] = os.environ["GEMINI_KEY"]
 client = genai.Client()
 
