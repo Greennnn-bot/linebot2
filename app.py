@@ -34,14 +34,14 @@ handler = WebhookHandler(channel_secret)
 
 # 初始化 Gemini
 if gemini_api_key:
-    print("成功讀取 GEMINI_API_KEY，AI 初始化中...")
+    print("【系統】成功讀取 GEMINI_API_KEY，AI 初始化成功！")
     ai_client = genai.Client(api_key=gemini_api_key)
 else:
-    print("⚠️ 警告：沒有偵測到 GEMINI_API_KEY，將使用備用回覆。")
+    print("⚠️【系統警告】沒有偵測到 GEMINI_API_KEY！")
     ai_client = None
 
-# 用來記錄處理過的 Webhook ID，防止重複處理
-processed_intents = set()
+# 用來記錄處理過的 Webhook ID，防止 LINE 重複發送卡死
+processed_events = set()
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -52,6 +52,7 @@ def callback():
     try:
         data = json.loads(body)
         if 'events' in data and len(data['events']) == 0:
+            print("【系統】偵測到 LINE Verify 測試訊號，直接回應 200")
             return 'OK', 200
     except:
         pass
@@ -66,35 +67,38 @@ def callback():
 # --- 2. 訊息處理邏輯 ---
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
-    # 防止重複事件處理（LINE 重試機制攔截）
+    # 【核心防摔機制 1】攔截 LINE 的重複重試請求
     event_id = event.webhook_event_id
-    if event_id in processed_intents:
-        print(f"攔截到重複的 LINE 請求: {event_id}，跳過處理。")
+    if event_id in processed_events:
+        print(f"【系統】攔截到重複發送的事件: {event_id}，直接跳過不處理。")
         return
-    processed_intents.add(event_id)
+    processed_events.add(event_id)
 
     user_message = event.message.text
-    print(f"【開始處理】收到訊息: {user_message}")
+    print(f"👉【收到訊息】內容為: '{user_message}'")
 
-    reply_text = "我現在正在思考，請稍等我一下喔！"
+    # 預設回覆
+    reply_text = "我現在大腦卡住了，請等我一下..."
 
     # 呼叫 Gemini AI
     if ai_client:
         try:
-            print("正在連線至 Gemini API...")
+            print("🤖【AI】正在連線至 Gemini API 產生回應...")
             response = ai_client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=user_message,
             )
             if response.text:
                 reply_text = response.text
+                print(f"🤖【AI】Gemini 回應成功: {reply_text[:20]}...")
         except Exception as e:
-            print(f"❌ Gemini AI 呼叫失敗: {e}")
-            reply_text = "糟了，我的 AI 大腦暫時連不上線..."
+            print(f"❌【AI 錯誤】Gemini API 呼叫失敗，原因為: {e}")
+            reply_text = f"抱歉，我的 AI 連線失敗：{e}"
     else:
-        reply_text = f"你剛剛說的是：「{user_message}」嗎？（提示：Cloud Run 尚未設定 GEMINI_API_KEY）"
+        print("❌【系統錯誤】因為沒有設定 GEMINI_API_KEY，無法呼叫 AI！")
+        reply_text = "你目前沒有在 Cloud Run 設定 GEMINI_API_KEY 環境變數喔！"
 
-    # 回傳給 LINE 使用者
+    # 【核心防摔機制 2】包裹回傳邏輯，就算憑證過期，伺服器也絕對不噴 500
     try:
         with ApiClient(configuration) as api_client:
             line_messaging_api = MessagingApi(api_client)
@@ -104,10 +108,9 @@ def handle_message(event):
                     messages=[TextMessage(text=reply_text)]
                 )
             )
-            print("【發送成功】已將回應傳給使用者。")
+            print("✨【發送】已成功將訊息傳回給手機使用者！")
     except Exception as e:
-        # 如果 Token 過期或重複發送，這裡會抓住，不會讓整個 App 噴 500 錯誤
-        print(f"⚠️ LINE 回覆失敗（可能 Reply Token 超時）: {e}")
+        print(f"⚠️【LINE 傳送失敗】(可能 Reply Token 已超時失效): {e}")
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8080))
