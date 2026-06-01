@@ -13,11 +13,12 @@ from google import genai
 
 app = Flask(__name__)
 
-# 初始化 LINE 設定 (對應你目前的環境變數)
-# 強制使用新版標準初始化，直接傳入金鑰
+# 1. 補齊 LINE 的初始化變數 (你剛剛漏掉了這兩行，導致後面 configuration 崩潰)
+configuration = Configuration(access_token=os.environ["LINE_TOKEN"])
+handler = WebhookHandler(os.environ["LINE_SECRET"])
+
+# 2. 強制使用新版標準初始化，直接傳入金鑰 (把剛剛重疊的程式碼理乾淨)
 client = genai.Client(api_key=os.environ.get("GEMINI_KEY"))
-os.environ["GEMINI_API_KEY"] = os.environ["GEMINI_KEY"]
-client = genai.Client()
 
 @app.route("/webhook", methods=["POST"])
 def callback():
@@ -34,7 +35,7 @@ def handle_message(event):
     user_msg = event.message.text
     
     try:
-        # 新版 SDK 呼叫 Gemini 產生內容的標準寫法 (絕對不會有 models/ 的 404 錯誤)
+        # 新版 SDK 呼叫 Gemini 產生內容的標準寫法
         response = client.models.generate_content(
             model='gemini-1.5-flash',
             contents=user_msg,
