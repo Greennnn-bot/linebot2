@@ -1,13 +1,16 @@
+import os
+import google.generativeai as genai
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
-import anthropic
 
 app = Flask(__name__)
 
-line_bot_api = LineBotApi("j/NbrdJWfa01UVa8wbYgP5hnPfJoopEN/f8c8yhsZrF5muuoNapiMSLca+N/lfGotuLd4xgUaePbGmDCBBNU1YZ7kDAJIXtiwEX/AmIQ8dC3XkDkL8JRDp7QKB1ImiR1nW27ifU/+CGaMFyb8shzOwdB04t89/1O/w1cDnyilFU=")
-handler = WebhookHandler("ed59110c3acd37f486606ffd1b930419")
-claude = anthropic.Anthropic(api_key="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")
+line_bot_api = LineBotApi(os.environ["j/NbrdJWfa01UVa8wbYgP5hnPfJoopEN/f8c8yhsZrF5muuoNapiMSLca+N/lfGotuLd4xgUaePbGmDCBBNU1YZ7kDAJIXtiwEX/AmIQ8dC3XkDkL8JRDp7QKB1ImiR1nW27ifU/+CGaMFyb8shzOwdB04t89/1O/w1cDnyilFU="])
+handler = WebhookHandler(os.environ["ed59110c3acd37f486606ffd1b930419"])
+
+genai.configure(api_key=os.environ["AQ.Ab8RN6KMvfom3A3j-C2dXQeXl-Z67yATmm9j2XXiVLe6wG8Q2g"])
+model = genai.GenerativeModel("gemini-1.5-flash")
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -19,12 +22,8 @@ def webhook():
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_msg = event.message.text
-    response = claude.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=1000,
-        messages=[{"role": "user", "content": user_msg}]
-    )
-    reply = response.content[0].text
+    response = model.generate_content(user_msg)
+    reply = response.text
     line_bot_api.reply_message(
         event.reply_token,
         TextSendMessage(text=reply)
