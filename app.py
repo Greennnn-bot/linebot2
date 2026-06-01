@@ -3,7 +3,7 @@ import sys
 import json
 from flask import Flask, request, abort
 
-# 引入 LINE Bot SDK v3 相關模組
+# 引入 LINE Bot SDK v3
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import (
@@ -15,70 +15,73 @@ from linebot.v3.messaging import (
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
-# ⭐ 新增：引入 Google GenAI SDK
+# 引入 Gemini AI SDK
 from google import genai
 
 app = Flask(__name__)
 
-# --- 1. 初始化 LINE Bot 與 Gemini 設定 ---
+# --- 1. 初始化設定 ---
 channel_secret = os.environ.get('LINE_CHANNEL_SECRET')
 channel_access_token = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
-gemini_api_key = os.environ.get('GEMINI_API_KEY')  # ⭐ 新增 Gemini 環境變數
+gemini_api_key = os.environ.get('GEMINI_API_KEY')
 
 if not channel_secret or not channel_access_token:
-    print('請確立設定 LINE 相關環境變數。')
+    print('錯誤：缺少 LINE 相關環境變數！')
     sys.exit(1)
 
-# 初始化 LINE 客户端
 configuration = Configuration(access_token=channel_access_token)
 handler = WebhookHandler(channel_secret)
 
-# ⭐ 初始化 Gemini 客户端 (會自動讀取 GEMINI_API_KEY 環境變數)
+# 初始化 Gemini
 if gemini_api_key:
+    print("成功讀取 GEMINI_API_KEY，AI 初始化中...")
     ai_client = genai.Client(api_key=gemini_api_key)
 else:
-    print('警告：未設定 GEMINI_API_KEY，AI 功能將無法運作！')
+    print("⚠️ 警告：沒有偵測到 GEMINI_API_KEY，將使用備用回覆。")
     ai_client = None
 
+# 用來記錄處理過的 Webhook ID，防止重複處理
+processed_intents = set()
 
-# --- 2. 核心 Webhook 接收端點 ---
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers.get('X-Line-Signature')
     body = request.get_data(as_text=True)
 
-    # 應付 LINE 點擊 Verify 按鈕的機制
+    # 應付 LINE 點擊 [Verify] 按鈕
     try:
         data = json.loads(body)
         if 'events' in data and len(data['events']) == 0:
-            print("偵測到 LINE Verify 測試訊號，直接回應 200 OK")
             return 'OK', 200
-    except Exception as e:
+    except:
         pass
 
-    # 處理正常的 LINE 訊息事件
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
-        print("簽章驗證失敗！")
         abort(400)
 
     return 'OK', 200
 
-
-# --- 3. 訊息處理邏輯（串接 Gemini AI 聊天） ---
+# --- 2. 訊息處理邏輯 ---
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
+    # 防止重複事件處理（LINE 重試機制攔截）
+    event_id = event.webhook_event_id
+    if event_id in processed_intents:
+        print(f"攔截到重複的 LINE 請求: {event_id}，跳過處理。")
+        return
+    processed_intents.add(event_id)
+
     user_message = event.message.text
-    print(f"收到使用者訊息: {user_message}")
+    print(f"【開始處理】收到訊息: {user_message}")
 
-    # 預設的回覆內容（萬一 AI 壞掉時的備用訊息）
-    reply_text = "抱歉，我現在大腦有點混亂，請稍後再試。"
+    reply_text = "我現在正在思考，請稍等我一下喔！"
 
-    # ⭐ 呼叫 Gemini API 產生回應
+    # 呼叫 Gemini AI
     if ai_client:
         try:
-            # 使用目前最推薦、速度快且免費額度充足的 gemini-2.5-flash 模型
+            print("正在連線至 Gemini API...")
             response = ai_client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=user_message,
@@ -86,18 +89,25 @@ def handle_message(event):
             if response.text:
                 reply_text = response.text
         except Exception as e:
-            print(f"Gemini API 呼叫失敗: {e}")
-            reply_text = "我的 AI 大腦連線失敗了..."
+            print(f"❌ Gemini AI 呼叫失敗: {e}")
+            reply_text = "糟了，我的 AI 大腦暫時連不上線..."
+    else:
+        reply_text = f"你剛剛說的是：「{user_message}」嗎？（提示：Cloud Run 尚未設定 GEMINI_API_KEY）"
 
-    # 將 Gemini 的回答傳回給 LINE 使用者
-    with ApiClient(configuration) as api_client:
-        line_messaging_api = MessagingApi(api_client)
-        line_messaging_api.reply_message_with_http_info(
-            ReplyMessageRequest(
-                reply_token=event.reply_token,
-                messages=[TextMessage(text=reply_text)]
+    # 回傳給 LINE 使用者
+    try:
+        with ApiClient(configuration) as api_client:
+            line_messaging_api = MessagingApi(api_client)
+            line_messaging_api.reply_message_with_http_info(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=reply_text)]
+                )
             )
-        )
+            print("【發送成功】已將回應傳給使用者。")
+    except Exception as e:
+        # 如果 Token 過期或重複發送，這裡會抓住，不會讓整個 App 噴 500 錯誤
+        print(f"⚠️ LINE 回覆失敗（可能 Reply Token 超時）: {e}")
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8080))
