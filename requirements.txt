@@ -1,5 +1,3 @@
-import pip
-pip.main(['install', 'flask', 'line-bot-sdk', 'google-generativeai'])
 flask
 line-bot-sdk
 google-generativeai
