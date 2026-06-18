@@ -35,18 +35,20 @@ else:
 
 processed_events = set()
 
-ASSISTANT_IDENTITY = """
-你現在是主人的專業理財顧問「小魚」。這份對話主要提供給長輩觀看，請保持高度敬意，稱呼對方為「您」。
+# --- 🌟 理財顧問「小魚」動態稱呼人設 🌟 ---
+# 這裡把具體的稱呼邏輯移到下方程式碼動態注入，保持大腦靈活
+ASSISTANT_IDENTITY_TEMPLATE = """
+你現在是主人的專業理財顧問「小魚」。目前正在與【{user_title}】對話，請在回答的開頭或適當地方，禮貌地稱呼對方為【{user_title}】。
 
-【硬性硬傷限制：字數絕對不能超過 100 字】
-- 您的回答必須極度精簡、字字珠璣！在 100 字以內誠懇解答，絕對不能長篇大論。
+【硬性限制：字數絕對不能超過 100 字】
+- 您的回答必須極度精簡！在 100 字內誠懇解答，絕對不能長篇大論。
 
 【說話風格：穩重有禮、白話好懂】
-- 語氣成熟溫柔、用詞謙虛。嚴禁使用任何年輕人的網路流行語與過多雜亂的貼圖。斷句清晰，方便長輩閱讀。
+- 語氣成熟溫柔、用詞謙虛。嚴禁使用任何年輕人的網路流行語，請用對方聽得懂的白話文解釋。
 
 【核心能力：台美股對照與未來趨勢分析】
-- 當長輩問及股市、新聞或行情時，必須同時使用 Google Search 搜尋「最新台股狀況」與「最新美股走勢」。
-- 必須把「美股對台股的連動關係」用最簡單的白話文解釋，並針對「未來的可能走向」給出沉穩、客觀的預測與叮嚀。
+- 當對方問及股市、新聞或行情時，必須同時使用 Google Search 搜尋「最新台股狀況」與「最新美股走勢」。
+- 結合台美股關係，給出沉穩、客觀的預測與叮嚀。
 """
 
 @app.route("/callback", methods=['POST'])
@@ -74,22 +76,56 @@ def handle_message(event):
 
     user_message = event.message.text
     
-    # 🌟【核心修改：群組防吵機制】🌟
-    # 檢查這張 Webhook 是不是來自群組 (Group) 或多人聊天室 (Room)
+    # 群組防吵機制
     is_in_group = event.source.type in ['group', 'room']
-    
-    # 如果在群組裡，而且完全沒有人標記「@小魚」或提到「小魚」，就直接結束不回應
     if is_in_group and "小魚" not in user_message:
         return
 
     print(f"👉【觸發回應】內容為: '{user_message}'")
-    reply_text = "您好，系統剛剛有些繁忙，請容我稍後為您重新解答。🙏"
+    
+    # 預設稱呼
+    user_title = "您" 
 
+    # 🌟【動態向 LINE 抓取使用者暱稱】🌟
+    try:
+        user_id = event.source.user_id
+        if user_id:
+            with ApiClient(configuration) as api_client:
+                line_messaging_api = MessagingApi(api_client)
+                
+                # 如果在群組裡，要拿群組成員的 Profile；若是一對一則拿一般 Profile
+                if is_in_group:
+                    group_id = event.source.group_id if event.source.type == 'group' else event.source.room_id
+                    profile = line_messaging_api.get_group_member_profile(group_id, user_id)
+                else:
+                    profile = line_messaging_api.get_profile(user_id)
+                
+                line_name = profile.display_name
+                print(f"👤【使用者 LINE 暱稱】: {line_name}")
+                
+                # 🌟【特定家人稱呼自訂邏輯】🌟
+                if "林岩墩" in line_name:
+                    user_title = "爸爸"
+                elif "曾小惠" in line_name:
+                    user_title = "媽媽"
+                else:
+                    user_title = f"{line_name}您" # 其他人就叫「XXX您」
+    except Exception as profile_err:
+        print(f"⚠️【抓取 Profile 失敗】: {profile_err}")
+        user_title = "您"
+
+    reply_text = f"{user_title}您好，小魚大腦稍微離線，請容我稍後為您解答。🙏"
+
+    # 呼叫 Gemini AI
     if ai_client:
         try:
-            print("🤖【AI】小魚正在同步分析台美股與未來趨勢...")
+            print(f"🤖【AI】小魚正在為【{user_title}】分析台美股...")
+            
+            # 將動態稱呼注入到 System Instruction 中
+            final_identity = ASSISTANT_IDENTITY_TEMPLATE.format(user_title=user_title)
+            
             config = types.GenerateContentConfig(
-                system_instruction=ASSISTANT_IDENTITY,
+                system_instruction=final_identity,
                 tools=[types.Tool(google_search=types.GoogleSearch())]
             )
             response = ai_client.models.generate_content(
@@ -99,10 +135,10 @@ def handle_message(event):
             )
             if response.text:
                 reply_text = response.text
-                print(f"🤖【AI】小魚連動分析成功！")
+                print(f"🤖【AI】小魚回應成功！")
         except Exception as e:
-            print(f"❌【AI 錯誤】呼叫失敗: {e}")
-            reply_text = f"您好，目前大腦連線有些不穩定，請您稍後再試。🙏"
+            print(f"❌【AI 錯誤】呼校失敗: {e}")
+            reply_text = f"{user_title}您好，目前連線有些不穩定，請您稍後再試。🙏"
 
     try:
         with ApiClient(configuration) as api_client:
